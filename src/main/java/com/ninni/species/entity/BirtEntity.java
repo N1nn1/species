@@ -1,13 +1,11 @@
 package com.ninni.species.entity;
 
-import com.google.common.collect.Lists;
-import com.ninni.species.block.SpeciesBlocks;
+import com.google.common.collect.ImmutableList;
+import com.mojang.serialization.Dynamic;
 import com.ninni.species.block.entity.BirtDwellingBlockEntity;
 import com.ninni.species.block.entity.SpeciesBlockEntities;
-import com.ninni.species.entity.ai.goal.BirtCommunicatingGoal;
-import com.ninni.species.entity.ai.goal.SendMessageTicksGoal;
+import com.ninni.species.entity.ai.BirtAi;
 import com.ninni.species.sound.SpeciesSoundEvents;
-import com.ninni.species.tag.SpeciesTags;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.entity.AnimationState;
@@ -15,15 +13,16 @@ import net.minecraft.entity.EntityPose;
 import net.minecraft.entity.EntityType;
 import net.minecraft.entity.Flutterer;
 import net.minecraft.entity.SpawnReason;
-import net.minecraft.entity.ai.AboveGroundTargeting;
-import net.minecraft.entity.ai.NoPenaltySolidTargeting;
 import net.minecraft.entity.ai.NoWaterTargeting;
 import net.minecraft.entity.ai.TargetPredicate;
+import net.minecraft.entity.ai.brain.Brain;
+import net.minecraft.entity.ai.brain.MemoryModuleType;
+import net.minecraft.entity.ai.brain.sensor.Sensor;
+import net.minecraft.entity.ai.brain.sensor.SensorType;
+import net.minecraft.entity.ai.brain.task.Task;
 import net.minecraft.entity.ai.control.FlightMoveControl;
-import net.minecraft.entity.ai.goal.*;
 import net.minecraft.entity.ai.pathing.BirdNavigation;
 import net.minecraft.entity.ai.pathing.EntityNavigation;
-import net.minecraft.entity.ai.pathing.Path;
 import net.minecraft.entity.attribute.DefaultAttributeContainer;
 import net.minecraft.entity.attribute.EntityAttributes;
 import net.minecraft.entity.damage.DamageSource;
@@ -37,11 +36,10 @@ import net.minecraft.entity.passive.PassiveEntity;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.nbt.NbtHelper;
 import net.minecraft.particle.VibrationParticleEffect;
-import net.minecraft.recipe.Ingredient;
+import net.minecraft.server.network.DebugInfoSender;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.sound.SoundCategory;
 import net.minecraft.sound.SoundEvent;
-import net.minecraft.tag.ItemTags;
 import net.minecraft.util.TimeHelper;
 import net.minecraft.util.annotation.Debug;
 import net.minecraft.util.math.BlockPos;
@@ -54,13 +52,11 @@ import net.minecraft.world.WorldAccess;
 import net.minecraft.world.WorldView;
 import net.minecraft.world.event.PositionSource;
 import net.minecraft.world.event.PositionSourceType;
-import net.minecraft.world.poi.PointOfInterest;
-import net.minecraft.world.poi.PointOfInterestStorage;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.*;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 
 public class BirtEntity extends AnimalEntity implements Angerable, Flutterer {
     public final AnimationState flyingAnimationState = new AnimationState();
@@ -73,6 +69,8 @@ public class BirtEntity extends AnimalEntity implements Angerable, Flutterer {
     private float flapSpeed = 1.0f;
     public int groundTicks;
     public int messageTicks = 0;
+    protected static final ImmutableList<SensorType<? extends Sensor<? super BirtEntity>>> SENSOR_TYPES = ImmutableList.of(SensorType.NEAREST_LIVING_ENTITIES, SensorType.HURT_BY, SpeciesSensorTypes.BIRT_TEMPTATIONS, SensorType.IS_IN_WATER);
+    protected static final ImmutableList<MemoryModuleType<?>> MEMORY_TYPES = ImmutableList.of(MemoryModuleType.LOOK_TARGET, MemoryModuleType.MOBS, MemoryModuleType.VISIBLE_MOBS, MemoryModuleType.WALK_TARGET, MemoryModuleType.CANT_REACH_WALK_TARGET_SINCE, MemoryModuleType.PATH, MemoryModuleType.BREED_TARGET, MemoryModuleType.TEMPTING_PLAYER, MemoryModuleType.TEMPTATION_COOLDOWN_TICKS, MemoryModuleType.IS_TEMPTED, MemoryModuleType.HURT_BY, MemoryModuleType.HURT_BY_ENTITY, MemoryModuleType.NEAREST_ATTACKABLE, MemoryModuleType.IS_IN_WATER, MemoryModuleType.IS_PANICKING, SpeciesMemoryModuleTypes.TICKS_LEFT_TO_FIND_DWELLING, SpeciesMemoryModuleTypes.NEAREST_BIRT_DWELLING);
     private static final TrackedData<Byte> BIRT_FLAGS = DataTracker.registerData(BirtEntity.class, TrackedDataHandlerRegistry.BYTE);
     private static final TrackedData<Integer> ANGER = DataTracker.registerData(BirtEntity.class, TrackedDataHandlerRegistry.INTEGER);
     private static final UniformIntProvider ANGER_TIME_RANGE = TimeHelper.betweenSeconds(20, 39);
@@ -82,7 +80,6 @@ public class BirtEntity extends AnimalEntity implements Angerable, Flutterer {
     int ticksLeftToFindDwelling;
     @Nullable
     BlockPos dwellingPos;
-    BirtEntity.MoveToDwellingGoal moveToDwellingGoal;
 
     public BirtEntity(EntityType<? extends AnimalEntity> entityType, World world) {
         super(entityType, world);
@@ -90,18 +87,42 @@ public class BirtEntity extends AnimalEntity implements Angerable, Flutterer {
     }
 
     @Override
-    protected void initGoals() {
-        this.goalSelector.add(0, new SwimGoal(this));
-        this.goalSelector.add(0, new MeleeAttackGoal(this, 1, false));
-        this.goalSelector.add(0, new FindDwellingGoal());
-        this.goalSelector.add(1, new EnterDwellingGoal());
-        this.moveToDwellingGoal = new MoveToDwellingGoal();
-        this.goalSelector.add(2, this.moveToDwellingGoal);
-        this.goalSelector.add(3, new TemptGoal(this, 1.25, Ingredient.fromTag(ItemTags.FLOWERS), false));
-        this.goalSelector.add(4, new SendMessageTicksGoal(this));
-        this.goalSelector.add(5, new BirtCommunicatingGoal(this));
-        this.goalSelector.add(8, new BirtWanderAroundGoal());
-        this.goalSelector.add(9, new BirtLookAroundGoal());
+    public Brain<BirtEntity> getBrain() {
+        return (Brain<BirtEntity>) super.getBrain();
+    }
+
+    @Override
+    protected Brain<?> deserializeBrain(Dynamic<?> dynamic) {
+        return BirtAi.makeBrain(this.createBrainProfile().deserialize(dynamic));
+    }
+
+    @Override
+    protected Brain.Profile<BirtEntity> createBrainProfile() {
+        return Brain.createProfile(MEMORY_TYPES, SENSOR_TYPES);
+    }
+
+    @Override
+    protected void mobTick() {
+        if (!this.world.isClient) {
+            for (Task<?> task : this.getBrain().getRunningTasks()) {
+                if (task.getStatus() == Task.Status.RUNNING) {
+                    System.out.println(task);
+                }
+            }
+        }
+        this.world.getProfiler().push("birtBrain");
+        this.getBrain().tick((ServerWorld) this.world, this);
+        this.world.getProfiler().pop();
+        this.world.getProfiler().push("birtActivityUpdate");
+        BirtAi.updateActivity(this);
+        this.world.getProfiler().pop();
+        super.mobTick();
+    }
+
+    @Override
+    protected void sendAiDebugData() {
+        super.sendAiDebugData();
+        DebugInfoSender.sendBrainDebugData(this);
     }
 
     public static DefaultAttributeContainer.Builder createBirtAttributes() {
@@ -188,7 +209,7 @@ public class BirtEntity extends AnimalEntity implements Angerable, Flutterer {
         this.flapWings();
     }
 
-    void startMovingTo(BlockPos pos) {
+    public void startMovingTo(BlockPos pos) {
         Vec3d vec3d = Vec3d.ofBottomCenter(pos);
         int i = 0;
         BlockPos blockPos = this.getBlockPos();
@@ -322,22 +343,16 @@ public class BirtEntity extends AnimalEntity implements Angerable, Flutterer {
         this.setAngerTime(ANGER_TIME_RANGE.get(this.random));
     }
     
-    boolean canEnterDwelling() {
-        if (this.cannotEnterDwellingTicks <= 0 && this.getTarget() == null) return this.world.isRaining() || this.world.isNight();
-        else return false;
+    public boolean canEnterDwelling() {
+        if (this.cannotEnterDwellingTicks <= 0 && this.getTarget() == null) {
+            return this.world.isRaining() || this.world.isNight();
+        } else {
+            return false;
+        }
     }
 
     public void setCannotEnterDwellingTicks(int cannotEnterDwellingTicks) {
         this.cannotEnterDwellingTicks = cannotEnterDwellingTicks;
-    }
-
-    private boolean doesDwellingHaveSpace(BlockPos pos) {
-        BlockEntity blockEntity = this.world.getBlockEntity(pos);
-        if (blockEntity instanceof BirtDwellingBlockEntity) {
-            return !((BirtDwellingBlockEntity)blockEntity).isFullOfBirts();
-        } else {
-            return false;
-        }
     }
 
     boolean isDwellingValid() {
@@ -353,7 +368,7 @@ public class BirtEntity extends AnimalEntity implements Angerable, Flutterer {
         this.setBirtFlag(2, nearTarget);
     }
 
-    boolean isTooFar(BlockPos pos) {
+    public boolean isTooFar(BlockPos pos) {
         return !this.isWithinDistance(pos, 32);
     }
 
@@ -377,7 +392,7 @@ public class BirtEntity extends AnimalEntity implements Angerable, Flutterer {
         return this.dwellingPos;
     }
 
-    boolean isWithinDistance(BlockPos pos, int distance) {
+    public boolean isWithinDistance(BlockPos pos, int distance) {
         return pos.isWithinDistance(this.getBlockPos(), distance);
     }
     
@@ -445,283 +460,20 @@ public class BirtEntity extends AnimalEntity implements Angerable, Flutterer {
         return SpeciesSoundEvents.ENTITY_BIRT_DEATH;
     }
 
-    class BirtWanderAroundGoal extends Goal {
+    public void setTicksLeftToFindDwelling(int ticksLeftToFindDwelling) {
+        this.ticksLeftToFindDwelling = ticksLeftToFindDwelling;
+    }
 
-        BirtWanderAroundGoal() {
-            this.setControls(EnumSet.of(Goal.Control.MOVE));
-        }
+    public void setDwellingPos(BlockPos dwellingPos) {
+        this.dwellingPos = dwellingPos;
+    }
 
-        @Override
-        public boolean canStart() {
-            if (BirtEntity.this.groundTicks < 0) return true;
-            else if (BirtEntity.this.isInAir()) return BirtEntity.this.navigation.isIdle() && BirtEntity.this.random.nextInt(10) == 0;
+    public boolean doesDwellingHaveSpace(BlockPos pos) {
+        BlockEntity blockEntity = this.world.getBlockEntity(pos);
+        if (blockEntity instanceof BirtDwellingBlockEntity birtDwellingBlockEntity) {
+            return !birtDwellingBlockEntity.isFullOfBirts();
+        } else {
             return false;
-        }
-
-        @Override
-        public boolean shouldContinue() {
-            return BirtEntity.this.navigation.isFollowingPath();
-        }
-
-        @Override
-        public void start() {
-            Vec3d vec3d = this.getRandomLocation();
-            if (vec3d != null) {
-                BirtEntity.this.navigation.startMovingAlong(BirtEntity.this.navigation.findPathTo(new BlockPos(vec3d), 1), 1.0);
-            }
-        }
-        
-        @Nullable
-        private Vec3d getRandomLocation() {
-            Vec3d vec3d2;
-            assert BirtEntity.this.dwellingPos != null;
-            if (BirtEntity.this.isDwellingValid() && !BirtEntity.this.isWithinDistance(BirtEntity.this.dwellingPos, 22)) {
-                Vec3d vec3d = Vec3d.ofCenter(BirtEntity.this.dwellingPos);
-                vec3d2 = vec3d.subtract(BirtEntity.this.getPos()).normalize();
-            } else {
-                vec3d2 = BirtEntity.this.getRotationVec(0.0F);
-            }
-
-            Vec3d vec3d3 = AboveGroundTargeting.find(BirtEntity.this, 12, 5, vec3d2.x, vec3d2.z, 1.5707964F, 3, 1);
-            return vec3d3 != null ? vec3d3 : NoPenaltySolidTargeting.find(BirtEntity.this, 12, 2, -2, vec3d2.x, vec3d2.z, 1.5707963705062866);
-        }
-    }
-
-    class BirtLookAroundGoal extends LookAroundGoal {
-
-        BirtLookAroundGoal() {
-            super(BirtEntity.this);
-        }
-
-        @Override
-        public boolean canStart() {
-            return BirtEntity.this.isOnGround() && super.canStart();
-        }
-
-        @Override
-        public boolean shouldContinue() {
-            return BirtEntity.this.isOnGround() && super.shouldContinue();
-        }
-    }
-    
-    class EnterDwellingGoal extends BirtEntity.NotAngryGoal {
-        EnterDwellingGoal() {
-            super();
-        }
-
-        @Override
-        public boolean canBirtStart() {
-            if (BirtEntity.this.hasDwelling() && BirtEntity.this.canEnterDwelling()) {
-                assert BirtEntity.this.dwellingPos != null;
-                if (BirtEntity.this.dwellingPos.isWithinDistance(BirtEntity.this.getPos(), 2.0)) {
-                    BlockEntity blockEntity = BirtEntity.this.world.getBlockEntity(BirtEntity.this.dwellingPos);
-                    if (blockEntity instanceof BirtDwellingBlockEntity blockEntity1) {
-                        if (!blockEntity1.isFullOfBirts()) {
-                            return true;
-                        }
-
-                        BirtEntity.this.dwellingPos = null;
-                    }
-                }
-            }
-
-            return false;
-        }
-
-        @Override
-        public boolean canBirtContinue() {
-            return false;
-        }
-
-        @Override
-        public void start() {
-            BlockEntity blockEntity = BirtEntity.this.world.getBlockEntity(BirtEntity.this.dwellingPos);
-            if (blockEntity instanceof BirtDwellingBlockEntity birtDwellingBlockEntity) {
-                birtDwellingBlockEntity.tryEnterDwelling(BirtEntity.this);
-            }
-
-        }
-    }
-
-    private class FindDwellingGoal extends BirtEntity.NotAngryGoal {
-        FindDwellingGoal() {
-            super();
-        }
-
-        @Override
-        public boolean canBirtStart() {
-            return BirtEntity.this.ticksLeftToFindDwelling == 0 && !BirtEntity.this.hasDwelling() && BirtEntity.this.canEnterDwelling();
-        }
-
-        @Override
-        public boolean canBirtContinue() {
-            return false;
-        }
-
-        @Override
-        public void start() {
-            BirtEntity.this.ticksLeftToFindDwelling = 200;
-            List<BlockPos> list = this.getNearbyFreeDwellings();
-            if (!list.isEmpty()) {
-                Iterator<BlockPos> var2 = list.iterator();
-
-                BlockPos blockPos;
-                do {
-                    if (!var2.hasNext()) {
-                        BirtEntity.this.moveToDwellingGoal.clearPossibleDwellings();
-                        BirtEntity.this.dwellingPos = list.get(0);
-                        return;
-                    }
-
-                    blockPos = var2.next();
-                } while(BirtEntity.this.moveToDwellingGoal.isPossibleDwelling(blockPos));
-
-                BirtEntity.this.dwellingPos = blockPos;
-            }
-        }
-
-        private List<BlockPos> getNearbyFreeDwellings() {
-            BlockPos blockPos = BirtEntity.this.getBlockPos();
-            PointOfInterestStorage pointOfInterestStorage = ((ServerWorld)BirtEntity.this.world).getPointOfInterestStorage();
-            Stream<PointOfInterest> stream = pointOfInterestStorage.getInCircle((poiType) -> poiType.isIn(SpeciesTags.BIRT_HOME), blockPos, 20, PointOfInterestStorage.OccupationStatus.ANY);
-            return stream.map(PointOfInterest::getPos).filter(BirtEntity.this::doesDwellingHaveSpace).sorted(Comparator.comparingDouble((blockPos2) -> blockPos2.getSquaredDistance(blockPos))).collect(Collectors.toList());
-        }
-    }
-
-    @Debug
-    public class MoveToDwellingGoal extends BirtEntity.NotAngryGoal {
-        int ticks;
-        final List<BlockPos> possibleDwellings;
-        @Nullable
-        private Path path;
-        private int ticksUntilLost;
-
-        MoveToDwellingGoal() {
-            super();
-            this.ticks = BirtEntity.this.world.random.nextInt(10);
-            this.possibleDwellings = Lists.newArrayList();
-            this.setControls(EnumSet.of(Control.MOVE));
-        }
-
-        @Override
-        public boolean canBirtStart() {
-            return BirtEntity.this.dwellingPos != null && !BirtEntity.this.hasPositionTarget() && BirtEntity.this.canEnterDwelling() && !this.isCloseEnough(BirtEntity.this.dwellingPos) && BirtEntity.this.world.getBlockState(BirtEntity.this.dwellingPos).isOf(SpeciesBlocks.BIRT_DWELLING);
-        }
-
-        @Override
-        public boolean canBirtContinue() {
-            return this.canBirtStart();
-        }
-
-        @Override
-        public void start() {
-            this.ticks = 0;
-            this.ticksUntilLost = 0;
-            super.start();
-        }
-
-        @Override
-        public void stop() {
-            this.ticks = 0;
-            this.ticksUntilLost = 0;
-            BirtEntity.this.navigation.stop();
-            BirtEntity.this.navigation.resetRangeMultiplier();
-        }
-
-        @Override
-        public void tick() {
-            if (BirtEntity.this.dwellingPos != null) {
-                ++this.ticks;
-                if (this.ticks > this.getTickCount(600)) {
-                    this.makeChosenDwellingPossibleDwelling();
-                } else if (!BirtEntity.this.navigation.isFollowingPath()) {
-                    if (!BirtEntity.this.isWithinDistance(BirtEntity.this.dwellingPos, 16)) {
-                        if (BirtEntity.this.isTooFar(BirtEntity.this.dwellingPos)) {
-                            this.setLost();
-                        } else {
-                            BirtEntity.this.startMovingTo(BirtEntity.this.dwellingPos);
-                        }
-                    } else {
-                        boolean bl = this.startMovingToFar(BirtEntity.this.dwellingPos);
-                        if (!bl) {
-                            this.makeChosenDwellingPossibleDwelling();
-                        } else if (this.path != null && Objects.requireNonNull(BirtEntity.this.navigation.getCurrentPath()).equalsPath(this.path)) {
-                            ++this.ticksUntilLost;
-                            if (this.ticksUntilLost > 60) {
-                                this.setLost();
-                                this.ticksUntilLost = 0;
-                            }
-                        } else {
-                            this.path = BirtEntity.this.navigation.getCurrentPath();
-                        }
-
-                    }
-                }
-            }
-        }
-
-        private boolean startMovingToFar(BlockPos pos) {
-            BirtEntity.this.navigation.setRangeMultiplier(10.0F);
-            BirtEntity.this.navigation.startMovingTo(pos.getX(), pos.getY(), pos.getZ(), 1.0);
-            return BirtEntity.this.navigation.getCurrentPath() != null && BirtEntity.this.navigation.getCurrentPath().reachesTarget();
-        }
-
-        boolean isPossibleDwelling(BlockPos pos) {
-            return this.possibleDwellings.contains(pos);
-        }
-
-        private void addPossibleDwelling(BlockPos pos) {
-            this.possibleDwellings.add(pos);
-
-            while(this.possibleDwellings.size() > 3) {
-                this.possibleDwellings.remove(0);
-            }
-
-        }
-
-        void clearPossibleDwellings() {
-            this.possibleDwellings.clear();
-        }
-
-        private void makeChosenDwellingPossibleDwelling() {
-            if (BirtEntity.this.dwellingPos != null) {
-                this.addPossibleDwelling(BirtEntity.this.dwellingPos);
-            }
-
-            this.setLost();
-        }
-
-        private void setLost() {
-            BirtEntity.this.dwellingPos = null;
-            BirtEntity.this.ticksLeftToFindDwelling = 200;
-        }
-
-        private boolean isCloseEnough(BlockPos pos) {
-            if (BirtEntity.this.isWithinDistance(pos, 2)) {
-                return true;
-            } else {
-                Path path = BirtEntity.this.navigation.getCurrentPath();
-                return path != null && path.getTarget().equals(pos) && path.reachesTarget() && path.isFinished();
-            }
-        }
-    }
-
-    private abstract class NotAngryGoal extends Goal {
-        NotAngryGoal() {
-        }
-
-        public abstract boolean canBirtStart();
-
-        public abstract boolean canBirtContinue();
-
-        @Override
-        public boolean canStart() {
-            return this.canBirtStart() && !BirtEntity.this.hasAngerTime();
-        }
-
-        @Override
-        public boolean shouldContinue() {
-            return this.canBirtContinue() && !BirtEntity.this.hasAngerTime();
         }
     }
     

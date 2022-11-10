@@ -6,6 +6,8 @@ import com.ninni.species.block.entity.SpeciesBlockEntities;
 import com.ninni.species.client.particles.SpeciesParticles;
 import com.ninni.species.entity.BirtEggEntity;
 import com.ninni.species.entity.SpeciesEntities;
+import com.ninni.species.entity.SpeciesMemoryModuleTypes;
+import com.ninni.species.entity.SpeciesSensorTypes;
 import com.ninni.species.entity.effect.SpeciesStatusEffects;
 import com.ninni.species.item.SpeciesItems;
 import com.ninni.species.sound.SpeciesSoundEvents;
@@ -49,6 +51,8 @@ public class Species implements ModInitializer {
 			SpeciesStatusEffects.class,
 			SpeciesParticles.class,
 			SpeciesEntities.class,
+			SpeciesMemoryModuleTypes.class,
+			SpeciesSensorTypes.class,
 			SpeciesStructures.class,
 			SpeciesStructureTypes.class,
 			SpeciesStructureSets.class,
