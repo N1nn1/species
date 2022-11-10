@@ -4,7 +4,9 @@ import com.ninni.species.entity.BirtEntity;
 import net.minecraft.entity.ai.brain.MemoryModuleState;
 import net.minecraft.entity.ai.brain.MemoryModuleType;
 import net.minecraft.entity.ai.brain.task.Task;
+import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.server.world.ServerWorld;
+import net.minecraft.text.Text;
 
 import java.util.Map;
 
@@ -16,7 +18,7 @@ public class BirtSendMessageTicksTask extends Task<BirtEntity> {
 
     @Override
     protected boolean shouldRun(ServerWorld world, BirtEntity entity) {
-        return entity.findReciever() != null && entity.getRandom().nextInt(200) == 0 && !entity.canSendMessage();
+        return entity.findReciever() != null && entity.getRandom().nextInt(300) == 0 && !entity.canSendMessage();
     }
 
     @Override

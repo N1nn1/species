@@ -5,6 +5,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.mojang.datafixers.util.Pair;
 import com.ninni.species.entity.BirtEntity;
+import com.ninni.species.entity.SpeciesMemoryModuleTypes;
 import com.ninni.species.entity.ai.tasks.BirtCommunicatingTask;
 import com.ninni.species.entity.ai.tasks.BirtSendMessageTicksTask;
 import com.ninni.species.entity.ai.tasks.EnterDwellingTask;
@@ -18,11 +19,15 @@ import net.minecraft.entity.ai.brain.MemoryModuleState;
 import net.minecraft.entity.ai.brain.MemoryModuleType;
 import net.minecraft.entity.ai.brain.task.ConditionalTask;
 import net.minecraft.entity.ai.brain.task.FollowMobTask;
+import net.minecraft.entity.ai.brain.task.ForgetAttackTargetTask;
+import net.minecraft.entity.ai.brain.task.ForgetTask;
 import net.minecraft.entity.ai.brain.task.GoTowardsLookTarget;
 import net.minecraft.entity.ai.brain.task.LookAroundTask;
 import net.minecraft.entity.ai.brain.task.LookTargetUtil;
+import net.minecraft.entity.ai.brain.task.MeleeAttackTask;
 import net.minecraft.entity.ai.brain.task.NoPenaltyStrollTask;
 import net.minecraft.entity.ai.brain.task.RandomTask;
+import net.minecraft.entity.ai.brain.task.RangedApproachTask;
 import net.minecraft.entity.ai.brain.task.StayAboveWaterTask;
 import net.minecraft.entity.ai.brain.task.TemptTask;
 import net.minecraft.entity.ai.brain.task.TemptationCooldownTask;
@@ -32,6 +37,8 @@ import net.minecraft.entity.ai.brain.task.WaitTask;
 import net.minecraft.entity.ai.brain.task.WalkTask;
 import net.minecraft.entity.ai.brain.task.WanderAroundTask;
 import net.minecraft.entity.mob.MobEntity;
+import net.minecraft.entity.passive.AxolotlBrain;
+import net.minecraft.entity.passive.AxolotlEntity;
 import net.minecraft.recipe.Ingredient;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.tag.ItemTags;
@@ -42,6 +49,7 @@ public class BirtAi {
     public static Brain<?> makeBrain(Brain<BirtEntity> brain) {
         initCoreActivity(brain);
         initIdleActivity(brain);
+        initFightActivities(brain);
         brain.setCoreActivities(ImmutableSet.of(Activity.CORE));
         brain.setDefaultActivity(Activity.IDLE);
         brain.resetPossibleActivities();
@@ -61,12 +69,12 @@ public class BirtAi {
     private static void initIdleActivity(Brain<BirtEntity> brain) {
         brain.setTaskList(Activity.IDLE, ImmutableList.of(
                 Pair.of(0, new FindDwellingTask()),
-                Pair.of(0, new EnterDwellingTask()),
-                Pair.of(0, new MoveToDwellingTask()),
-                Pair.of(1, new TimeLimitedTask<>(new FollowMobTask(EntityType.PLAYER, 6.0F), UniformIntProvider.create(30, 60))),
-                Pair.of(2, new TemptTask((entity) -> 1.25F)),
-                Pair.of(3, new UpdateAttackTargetTask<>(LookTargetUtil::hasBreedTarget, birt -> birt.getBrain().getOptionalMemory(MemoryModuleType.NEAREST_ATTACKABLE))),
-                Pair.of(4, new BirtSendMessageTicksTask(ImmutableMap.of())),
+                Pair.of(1, new TemptTask((entity) -> 1.25F)),
+                Pair.of(1, new MoveToDwellingTask()),
+                Pair.of(2, new EnterDwellingTask()),
+                Pair.of(3, new TimeLimitedTask<>(new FollowMobTask(EntityType.PLAYER, 6.0F), UniformIntProvider.create(30, 60))),
+                Pair.of(3, new UpdateAttackTargetTask<>(birt -> birt.getBrain().getOptionalMemory(MemoryModuleType.NEAREST_ATTACKABLE))),
+                Pair.of(4, new BirtSendMessageTicksTask(ImmutableMap.of(MemoryModuleType.IS_TEMPTED, MemoryModuleState.VALUE_ABSENT))),
                 Pair.of(4, new BirtCommunicatingTask(ImmutableMap.of())),
                 Pair.of(5, new RandomTask<>(
                         ImmutableMap.of(MemoryModuleType.WALK_TARGET, MemoryModuleState.VALUE_ABSENT),
@@ -76,6 +84,18 @@ public class BirtAi {
                                 Pair.of(new ConditionalTask<>(Entity::isOnGround, new WaitTask(5, 20)), 2)
                         )))
         ), ImmutableSet.of());
+    }
+
+    private static void initFightActivities(Brain<BirtEntity> brain) {
+        brain.setTaskList(Activity.FIGHT,
+                0,
+                ImmutableList.of(
+                        new ForgetAttackTargetTask<>(),
+                        new RangedApproachTask(1.0F),
+                        new MeleeAttackTask(20)
+                ),
+                MemoryModuleType.ATTACK_TARGET
+        );
     }
 
     private static class BirtLookAroundTask extends LookAroundTask {
@@ -97,7 +117,7 @@ public class BirtAi {
     }
 
     public static void updateActivity(BirtEntity entity) {
-        entity.getBrain().resetPossibleActivities(ImmutableList.of(Activity.SWIM, Activity.IDLE));
+        entity.getBrain().resetPossibleActivities(ImmutableList.of(Activity.SWIM, Activity.FIGHT, Activity.IDLE));
     }
 
     public static Ingredient getTemptItems() {

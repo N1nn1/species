@@ -5,6 +5,7 @@ import com.google.common.collect.Lists;
 import com.ninni.species.block.SpeciesBlocks;
 import com.ninni.species.entity.BirtEntity;
 import com.ninni.species.entity.SpeciesMemoryModuleTypes;
+import net.minecraft.entity.ai.brain.MemoryModuleType;
 import net.minecraft.entity.ai.brain.task.Task;
 import net.minecraft.entity.ai.pathing.Path;
 import net.minecraft.server.world.ServerWorld;
@@ -42,6 +43,7 @@ public class MoveToDwellingTask extends Task<BirtEntity> {
 
     @Override
     protected void run(ServerWorld world, BirtEntity entity, long time) {
+        entity.getBrain().forget(MemoryModuleType.WALK_TARGET);
         this.ticks = 0;
         this.ticksUntilLost = 0;
     }

@@ -7,6 +7,7 @@ import net.minecraft.block.BlockState;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityType;
+import net.minecraft.entity.ai.brain.MemoryModuleType;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.nbt.NbtElement;
@@ -55,6 +56,7 @@ public class BirtDwellingBlockEntity extends BlockEntity {
                 if (!(entity instanceof BirtEntity birt)) continue;
                 if (!(player.getPos().squaredDistanceTo(entity.getPos()) <= 16.0)) continue;
                 birt.setTarget(player);
+                birt.getBrain().remember(MemoryModuleType.ATTACK_TARGET, player);
                 birt.setCannotEnterDwellingTicks(400);
             }
         }

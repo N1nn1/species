@@ -19,7 +19,6 @@ import net.minecraft.entity.ai.brain.Brain;
 import net.minecraft.entity.ai.brain.MemoryModuleType;
 import net.minecraft.entity.ai.brain.sensor.Sensor;
 import net.minecraft.entity.ai.brain.sensor.SensorType;
-import net.minecraft.entity.ai.brain.task.Task;
 import net.minecraft.entity.ai.control.FlightMoveControl;
 import net.minecraft.entity.ai.pathing.BirdNavigation;
 import net.minecraft.entity.ai.pathing.EntityNavigation;
@@ -70,7 +69,7 @@ public class BirtEntity extends AnimalEntity implements Angerable, Flutterer {
     public int groundTicks;
     public int messageTicks = 0;
     protected static final ImmutableList<SensorType<? extends Sensor<? super BirtEntity>>> SENSOR_TYPES = ImmutableList.of(SensorType.NEAREST_LIVING_ENTITIES, SensorType.HURT_BY, SpeciesSensorTypes.BIRT_TEMPTATIONS, SensorType.IS_IN_WATER);
-    protected static final ImmutableList<MemoryModuleType<?>> MEMORY_TYPES = ImmutableList.of(MemoryModuleType.LOOK_TARGET, MemoryModuleType.MOBS, MemoryModuleType.VISIBLE_MOBS, MemoryModuleType.WALK_TARGET, MemoryModuleType.CANT_REACH_WALK_TARGET_SINCE, MemoryModuleType.PATH, MemoryModuleType.BREED_TARGET, MemoryModuleType.TEMPTING_PLAYER, MemoryModuleType.TEMPTATION_COOLDOWN_TICKS, MemoryModuleType.IS_TEMPTED, MemoryModuleType.HURT_BY, MemoryModuleType.HURT_BY_ENTITY, MemoryModuleType.NEAREST_ATTACKABLE, MemoryModuleType.IS_IN_WATER, MemoryModuleType.IS_PANICKING, SpeciesMemoryModuleTypes.TICKS_LEFT_TO_FIND_DWELLING, SpeciesMemoryModuleTypes.NEAREST_BIRT_DWELLING);
+    protected static final ImmutableList<MemoryModuleType<?>> MEMORY_TYPES = ImmutableList.of(MemoryModuleType.ATTACK_TARGET, MemoryModuleType.ATTACK_COOLING_DOWN, MemoryModuleType.LOOK_TARGET, MemoryModuleType.MOBS, MemoryModuleType.VISIBLE_MOBS, MemoryModuleType.WALK_TARGET, MemoryModuleType.CANT_REACH_WALK_TARGET_SINCE, MemoryModuleType.PATH, MemoryModuleType.BREED_TARGET, MemoryModuleType.TEMPTING_PLAYER, MemoryModuleType.TEMPTATION_COOLDOWN_TICKS, MemoryModuleType.IS_TEMPTED, MemoryModuleType.HURT_BY, MemoryModuleType.HURT_BY_ENTITY, MemoryModuleType.NEAREST_ATTACKABLE, MemoryModuleType.IS_IN_WATER, MemoryModuleType.IS_PANICKING, SpeciesMemoryModuleTypes.TICKS_LEFT_TO_FIND_DWELLING, SpeciesMemoryModuleTypes.NEAREST_BIRT_DWELLING);
     private static final TrackedData<Byte> BIRT_FLAGS = DataTracker.registerData(BirtEntity.class, TrackedDataHandlerRegistry.BYTE);
     private static final TrackedData<Integer> ANGER = DataTracker.registerData(BirtEntity.class, TrackedDataHandlerRegistry.INTEGER);
     private static final UniformIntProvider ANGER_TIME_RANGE = TimeHelper.betweenSeconds(20, 39);
@@ -103,13 +102,6 @@ public class BirtEntity extends AnimalEntity implements Angerable, Flutterer {
 
     @Override
     protected void mobTick() {
-        if (!this.world.isClient) {
-            for (Task<?> task : this.getBrain().getRunningTasks()) {
-                if (task.getStatus() == Task.Status.RUNNING) {
-                    System.out.println(task);
-                }
-            }
-        }
         this.world.getProfiler().push("birtBrain");
         this.getBrain().tick((ServerWorld) this.world, this);
         this.world.getProfiler().pop();
@@ -344,7 +336,7 @@ public class BirtEntity extends AnimalEntity implements Angerable, Flutterer {
     }
     
     public boolean canEnterDwelling() {
-        if (this.cannotEnterDwellingTicks <= 0 && this.getTarget() == null) {
+        if (this.cannotEnterDwellingTicks <= 0 && this.getBrain().getOptionalMemory(MemoryModuleType.ATTACK_TARGET).isEmpty()) {
             return this.world.isRaining() || this.world.isNight();
         } else {
             return false;
