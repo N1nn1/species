@@ -66,10 +66,9 @@ public class BirtEntity extends AnimalEntity implements Angerable, Flutterer {
     public float flap = 1;
     public int antennaTicks;
     private float flapSpeed = 1.0f;
-    public int groundTicks;
     public int messageTicks = 0;
     protected static final ImmutableList<SensorType<? extends Sensor<? super BirtEntity>>> SENSOR_TYPES = ImmutableList.of(SensorType.NEAREST_LIVING_ENTITIES, SensorType.HURT_BY, SpeciesSensorTypes.BIRT_TEMPTATIONS, SensorType.IS_IN_WATER);
-    protected static final ImmutableList<MemoryModuleType<?>> MEMORY_TYPES = ImmutableList.of(MemoryModuleType.ATTACK_TARGET, MemoryModuleType.ATTACK_COOLING_DOWN, MemoryModuleType.LOOK_TARGET, MemoryModuleType.MOBS, MemoryModuleType.VISIBLE_MOBS, MemoryModuleType.WALK_TARGET, MemoryModuleType.CANT_REACH_WALK_TARGET_SINCE, MemoryModuleType.PATH, MemoryModuleType.BREED_TARGET, MemoryModuleType.TEMPTING_PLAYER, MemoryModuleType.TEMPTATION_COOLDOWN_TICKS, MemoryModuleType.IS_TEMPTED, MemoryModuleType.HURT_BY, MemoryModuleType.HURT_BY_ENTITY, MemoryModuleType.NEAREST_ATTACKABLE, MemoryModuleType.IS_IN_WATER, MemoryModuleType.IS_PANICKING, SpeciesMemoryModuleTypes.TICKS_LEFT_TO_FIND_DWELLING, SpeciesMemoryModuleTypes.NEAREST_BIRT_DWELLING);
+    protected static final ImmutableList<MemoryModuleType<?>> MEMORY_TYPES = ImmutableList.of(MemoryModuleType.ATTACK_TARGET, MemoryModuleType.ATTACK_COOLING_DOWN, MemoryModuleType.LOOK_TARGET, MemoryModuleType.MOBS, MemoryModuleType.VISIBLE_MOBS, MemoryModuleType.WALK_TARGET, MemoryModuleType.CANT_REACH_WALK_TARGET_SINCE, MemoryModuleType.PATH, MemoryModuleType.BREED_TARGET, MemoryModuleType.TEMPTING_PLAYER, MemoryModuleType.TEMPTATION_COOLDOWN_TICKS, MemoryModuleType.IS_TEMPTED, MemoryModuleType.HURT_BY, MemoryModuleType.HURT_BY_ENTITY, MemoryModuleType.NEAREST_ATTACKABLE, MemoryModuleType.IS_IN_WATER, MemoryModuleType.IS_PANICKING, SpeciesMemoryModuleTypes.TICKS_LEFT_TO_FIND_DWELLING, SpeciesMemoryModuleTypes.NEAREST_BIRT_DWELLING, SpeciesMemoryModuleTypes.GROUND_TICKS);
     private static final TrackedData<Byte> BIRT_FLAGS = DataTracker.registerData(BirtEntity.class, TrackedDataHandlerRegistry.BYTE);
     private static final TrackedData<Integer> ANGER = DataTracker.registerData(BirtEntity.class, TrackedDataHandlerRegistry.INTEGER);
     private static final UniformIntProvider ANGER_TIME_RANGE = TimeHelper.betweenSeconds(20, 39);
@@ -177,11 +176,11 @@ public class BirtEntity extends AnimalEntity implements Angerable, Flutterer {
             this.setVelocity(vec3d.multiply(1.0, 0.6, 1.0));
         }
         if (this.isInAir()) {
-            this.groundTicks = random.nextInt(300) + 20;
+            this.getBrain().remember(SpeciesMemoryModuleTypes.GROUND_TICKS, random.nextInt(300) + 20);
             this.setPose(EntityPose.FALL_FLYING);
         }
         else {
-            this.groundTicks--;
+            this.getBrain().getOptionalMemory(SpeciesMemoryModuleTypes.GROUND_TICKS).ifPresent(integer -> this.getBrain().remember(SpeciesMemoryModuleTypes.GROUND_TICKS, integer - 1));
             this.setPose(EntityPose.STANDING);
         }
         if (this.cannotEnterDwellingTicks > 0) {

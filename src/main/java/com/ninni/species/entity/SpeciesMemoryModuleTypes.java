@@ -13,6 +13,7 @@ import java.util.Optional;
 public class SpeciesMemoryModuleTypes {
 
     public static final MemoryModuleType<Integer> TICKS_LEFT_TO_FIND_DWELLING = register("ticks_left_to_find_dwelling", Codec.INT);
+    public static final MemoryModuleType<Integer> GROUND_TICKS = register("ground_ticks", Codec.INT);
     public static final MemoryModuleType<List<BlockPos>> NEAREST_BIRT_DWELLING = register("nearest_birt_dwelling");
 
     private static <U> MemoryModuleType<U> register(String id) {
