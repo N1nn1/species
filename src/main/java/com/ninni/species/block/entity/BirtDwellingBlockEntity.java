@@ -1,27 +1,37 @@
 package com.ninni.species.block.entity;
 
 import com.google.common.collect.Lists;
+import com.mojang.logging.LogUtils;
+import com.mojang.serialization.Dynamic;
 import com.ninni.species.block.BirtDwellingBlock;
 import com.ninni.species.entity.BirtEntity;
+import com.ninni.species.entity.effect.SpeciesStatusEffects;
+import com.ninni.species.tag.SpeciesTags;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityType;
 import net.minecraft.entity.ai.brain.MemoryModuleType;
+import net.minecraft.entity.effect.StatusEffectInstance;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.nbt.NbtElement;
 import net.minecraft.nbt.NbtHelper;
 import net.minecraft.nbt.NbtList;
 import net.minecraft.nbt.NbtOps;
+import net.minecraft.server.world.ServerWorld;
 import net.minecraft.sound.SoundCategory;
 import net.minecraft.sound.SoundEvents;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Direction;
 import net.minecraft.world.World;
+import net.minecraft.world.event.BlockPositionSource;
 import net.minecraft.world.event.GameEvent;
+import net.minecraft.world.event.listener.GameEventListener;
 import net.minecraft.world.event.listener.VibrationListener;
 import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -30,16 +40,19 @@ import java.util.List;
 
 import static com.ninni.species.block.BirtDwellingBlock.BIRTS;
 
-public class BirtDwellingBlockEntity extends BlockEntity {
+public class BirtDwellingBlockEntity extends BlockEntity implements VibrationListener.Callback {
     public static final String MIN_OCCUPATION_TICKS_KEY = "MinOccupationTicks";
     public static final String ENTITY_DATA_KEY = "EntityData";
     public static final String TICKS_IN_DWELLING_KEY = "TicksInDwelling";
     public static final String BIRTS_KEY = "Birts";
     private static final List<String> IRRELEVANT_BIRT_NBT_KEYS = Arrays.asList("Air", "Bees", "ArmorDropChances", "ArmorItems", "Brain", "CanPickUpLoot", "DeathTime", "FallDistance", "FallFlying", "Fire", "HandDropChances", "HandItems", "HurtByTimestamp", "HurtTime", "LeftHanded", "Motion", "NoGravity", "OnGround", "PortalCooldown", "Pos", "Rotation", "CannotEnterDwellingTicks", "CannotEnterHiveTicks", "TicksSincePollination", "CropsGrownSincePollination", "DwellingPos", "HivePos", "Passengers", "Leash", "UUID");
     private final List<Birt> birts = Lists.newArrayList();
+    private static VibrationListener vibrationListener;
+    private static final Logger logger = LogUtils.getLogger();
 
     public BirtDwellingBlockEntity(BlockPos pos, BlockState state) {
         super(SpeciesBlockEntities.BIRT_DWELLING, pos, state);
+        BirtDwellingBlockEntity.vibrationListener = new VibrationListener(new BlockPositionSource(this.pos), 8, this, null, 0.0f, 0);
     }
 
     public boolean hasNoBirts() {
@@ -52,14 +65,23 @@ public class BirtDwellingBlockEntity extends BlockEntity {
     }
 
     public void angerBirts(@Nullable PlayerEntity player, BlockState state, BirtState birtState) {
+        this.angerBirts(player, state, birtState, false);
+    }
+
+    public void angerBirts(@Nullable PlayerEntity player, BlockState state, BirtState birtState, boolean stunned) {
         List<Entity> list = this.tryReleaseBirt(state, birtState);
-        if (player != null) {
-            for (Entity entity : list) {
-                if (!(entity instanceof BirtEntity birt)) continue;
-                if (!(player.getPos().squaredDistanceTo(entity.getPos()) <= 16.0)) continue;
-                birt.setTarget(player);
-                birt.getBrain().remember(MemoryModuleType.ATTACK_TARGET, player);
-                birt.setCannotEnterDwellingTicks(400);
+        for (Entity entity : list) {
+            if (!(entity instanceof BirtEntity birt)) continue;
+            birt.setCannotEnterDwellingTicks(400);
+            if (stunned) {
+                birt.addStatusEffect(new StatusEffectInstance(SpeciesStatusEffects.BIRTD, 200));
+            } else {
+                if (player != null) {
+                    boolean b = !(player.getPos().squaredDistanceTo(entity.getPos()) <= 16.0);
+                    if (b) continue;
+                    birt.setTarget(player);
+                    birt.getBrain().remember(MemoryModuleType.ATTACK_TARGET, player);
+                }
             }
         }
     }
@@ -163,7 +185,13 @@ public class BirtDwellingBlockEntity extends BlockEntity {
         if (bl) BirtDwellingBlockEntity.markDirty(world, pos, state);
     }
 
+    @Override
+    public void onListen() {
+        this.markDirty();
+    }
+
     public static void serverTick(World world, BlockPos pos, BlockState state, BirtDwellingBlockEntity blockEntity) {
+        BirtDwellingBlockEntity.getVibrationListener().tick(world);
         BirtDwellingBlockEntity.tickBirts(world, pos, state, blockEntity.birts);
         if (!blockEntity.birts.isEmpty() && world.getRandom().nextDouble() < 0.005) {
             double d = (double)pos.getX() + 0.5;
@@ -183,12 +211,16 @@ public class BirtDwellingBlockEntity extends BlockEntity {
             Birt birt = new Birt(nbtCompound.getCompound(ENTITY_DATA_KEY), nbtCompound.getInt(TICKS_IN_DWELLING_KEY), nbtCompound.getInt(MIN_OCCUPATION_TICKS_KEY));
             this.birts.add(birt);
         }
+        if (nbt.contains("listener", NbtElement.COMPOUND_TYPE)) {
+            VibrationListener.createCodec(this).parse(new Dynamic<>(NbtOps.INSTANCE, nbt.getCompound("listener"))).resultOrPartial(logger::error).ifPresent(vibrationListener -> BirtDwellingBlockEntity.vibrationListener = vibrationListener);
+        }
     }
 
     @Override
     protected void writeNbt(NbtCompound nbt) {
         super.writeNbt(nbt);
         nbt.put(BIRTS_KEY, this.getBirts());
+        VibrationListener.createCodec(this).encodeStart(NbtOps.INSTANCE, BirtDwellingBlockEntity.vibrationListener).resultOrPartial(logger::error).ifPresent(nbtElement -> nbt.put("listener", nbtElement));
     }
 
     public NbtList getBirts() {
@@ -203,6 +235,20 @@ public class BirtDwellingBlockEntity extends BlockEntity {
             nbtList.add(nbtCompound2);
         }
         return nbtList;
+    }
+
+    public static VibrationListener getVibrationListener() {
+        return vibrationListener;
+    }
+
+    @Override
+    public boolean accepts(ServerWorld world, GameEventListener listener, BlockPos pos, GameEvent event, GameEvent.Emitter emitter) {
+        return this.getCachedState().get(BIRTS) > 0 && (event.isIn(SpeciesTags.BIRT_TRIGGER_EVENTS) || (event == GameEvent.BLOCK_CHANGE && world.getBlockState(pos).isIn(SpeciesTags.BIRT_TRIGGERABLE_BLOCKS)));
+    }
+
+    @Override
+    public void accept(ServerWorld world, GameEventListener listener, BlockPos pos, GameEvent event, @Nullable Entity entity, @Nullable Entity sourceEntity, float distance) {
+        this.angerBirts((PlayerEntity) entity, this.getCachedState(), BirtState.EMERGENCY, true);
     }
 
     public enum BirtState {

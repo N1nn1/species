@@ -1,0 +1,8 @@
+{
+  "replace": false,
+  "values": [
+    "minecraft:instrument_play",
+    "minecraft:explode",
+    "minecraft:lightning_strike"
+  ]
+}

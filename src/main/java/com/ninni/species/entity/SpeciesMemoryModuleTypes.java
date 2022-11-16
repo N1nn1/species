@@ -15,6 +15,7 @@ public class SpeciesMemoryModuleTypes {
     public static final MemoryModuleType<Integer> TICKS_LEFT_TO_FIND_DWELLING = register("ticks_left_to_find_dwelling", Codec.INT);
     public static final MemoryModuleType<Integer> GROUND_TICKS = register("ground_ticks", Codec.INT);
     public static final MemoryModuleType<List<BlockPos>> NEAREST_BIRT_DWELLING = register("nearest_birt_dwelling");
+    public static final MemoryModuleType<Integer> CANNOT_ENTER_DWELLING_TICKS = register("cannot_enter_dwelling_ticks", Codec.INT);
 
     private static <U> MemoryModuleType<U> register(String id) {
         return Registry.register(Registry.MEMORY_MODULE_TYPE, new Identifier(Species.MOD_ID, id), new MemoryModuleType<>(Optional.empty()));
