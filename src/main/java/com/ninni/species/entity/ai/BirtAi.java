@@ -12,6 +12,8 @@ import com.ninni.species.entity.ai.tasks.EnterDwellingTask;
 import com.ninni.species.entity.ai.tasks.FindDwellingTask;
 import com.ninni.species.entity.ai.tasks.MoveToDwellingTask;
 import net.minecraft.entity.Entity;
+import net.minecraft.entity.ai.AboveGroundTargeting;
+import net.minecraft.entity.ai.NoPenaltySolidTargeting;
 import net.minecraft.entity.ai.brain.Activity;
 import net.minecraft.entity.ai.brain.Brain;
 import net.minecraft.entity.ai.brain.MemoryModuleState;
@@ -36,6 +38,7 @@ import net.minecraft.entity.mob.PathAwareEntity;
 import net.minecraft.recipe.Ingredient;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.tag.ItemTags;
+import net.minecraft.util.math.Vec3d;
 
 import java.util.Optional;
 
@@ -57,7 +60,8 @@ public class BirtAi {
                 new WalkTask(2.0F),
                 new BirtLookAroundTask(45, 90),
                 new WanderAroundTask(),
-                new TemptationCooldownTask(MemoryModuleType.TEMPTATION_COOLDOWN_TICKS)
+                new TemptationCooldownTask(MemoryModuleType.TEMPTATION_COOLDOWN_TICKS),
+                new TemptationCooldownTask(SpeciesMemoryModuleTypes.TICKS_LEFT_TO_FIND_DWELLING)
         ));
     }
 
@@ -109,6 +113,21 @@ public class BirtAi {
                 }
             }
             return false;
+        }
+
+        @Override
+        protected Vec3d findWalkTarget(PathAwareEntity entity) {
+            Vec3d vec3d2;
+            if (entity instanceof BirtEntity birt) {
+                if (birt.getDwellingPos() != null && birt.isDwellingValid() && !birt.isWithinDistance(birt.getDwellingPos(), 22)) {
+                    vec3d2 = Vec3d.ofCenter(birt.getDwellingPos()).subtract(birt.getPos()).normalize();
+                } else {
+                    vec3d2 = birt.getRotationVec(0.0F);
+                }
+                Vec3d vec3d3 = AboveGroundTargeting.find(birt, 12, 5, vec3d2.x, vec3d2.z, 1.5707964F, 3, 1);
+                return vec3d3 != null ? vec3d3 : NoPenaltySolidTargeting.find(birt, 12, 2, -2, vec3d2.x, vec3d2.z, 1.5707963705062866);
+            }
+            return null;
         }
     }
 

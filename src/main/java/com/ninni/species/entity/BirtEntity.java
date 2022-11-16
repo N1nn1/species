@@ -346,7 +346,7 @@ public class BirtEntity extends AnimalEntity implements Angerable, Flutterer {
         this.cannotEnterDwellingTicks = cannotEnterDwellingTicks;
     }
 
-    boolean isDwellingValid() {
+    public boolean isDwellingValid() {
         if (!this.hasDwelling()) {
             return false;
         } else {

@@ -10,17 +10,11 @@ import net.minecraft.entity.ai.brain.task.Task;
 import net.minecraft.entity.ai.pathing.Path;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.MathHelper;
-import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
-import java.util.Objects;
 
 public class MoveToDwellingTask extends Task<BirtEntity> {
     int ticks;
-    @Nullable
-    private Path path;
-    private int ticksUntilLost;
 
     public MoveToDwellingTask() {
         super(ImmutableMap.of());
@@ -33,7 +27,7 @@ public class MoveToDwellingTask extends Task<BirtEntity> {
 
     @Override
     protected boolean shouldRun(ServerWorld world, BirtEntity entity) {
-        return entity.getDwellingPos() != null && !entity.hasPositionTarget() && entity.canEnterDwelling() && !this.isCloseEnough(entity, entity.getDwellingPos()) && world.getBlockState(entity.getDwellingPos()).isOf(SpeciesBlocks.BIRT_DWELLING);
+        return entity.getDwellingPos() != null && entity.canEnterDwelling() && !this.isCloseEnough(entity, entity.getDwellingPos()) && world.getBlockState(entity.getDwellingPos()).isOf(SpeciesBlocks.BIRT_DWELLING);
     }
 
     @Override
@@ -45,13 +39,11 @@ public class MoveToDwellingTask extends Task<BirtEntity> {
     protected void run(ServerWorld world, BirtEntity entity, long time) {
         entity.getBrain().forget(MemoryModuleType.WALK_TARGET);
         this.ticks = 0;
-        this.ticksUntilLost = 0;
     }
 
     @Override
     protected void finishRunning(ServerWorld world, BirtEntity entity, long time) {
         this.ticks = 0;
-        this.ticksUntilLost = 0;
         entity.getNavigation().stop();
         entity.getNavigation().resetRangeMultiplier();
     }
@@ -60,29 +52,14 @@ public class MoveToDwellingTask extends Task<BirtEntity> {
     protected void keepRunning(ServerWorld world, BirtEntity entity, long time) {
         if (entity.getDwellingPos() != null) {
             ++this.ticks;
-            if (this.ticks > MathHelper.ceilDiv(600, 2)) {
-                this.makeChosenDwellingPossibleDwelling(entity);
-            } else if (!entity.getNavigation().isFollowingPath()) {
+            if (!entity.getNavigation().isFollowingPath()) {
                 if (!entity.isWithinDistance(entity.getDwellingPos(), 16)) {
-                    if (entity.isTooFar(entity.getDwellingPos())) {
-                        this.setLost(entity);
-                    } else {
-                        entity.startMovingTo(entity.getDwellingPos());
-                    }
+                    entity.getNavigation().startMovingTo(entity.getDwellingPos().getX(), entity.getDwellingPos().getY(), entity.getDwellingPos().getZ(), 1.0F);
                 } else {
                     boolean bl = this.startMovingToFar(entity, entity.getDwellingPos());
                     if (!bl) {
                         this.makeChosenDwellingPossibleDwelling(entity);
-                    } else if (this.path != null && Objects.requireNonNull(entity.getNavigation().getCurrentPath()).equalsPath(this.path)) {
-                        ++this.ticksUntilLost;
-                        if (this.ticksUntilLost > 60) {
-                            this.setLost(entity);
-                            this.ticksUntilLost = 0;
-                        }
-                    } else {
-                        this.path = entity.getNavigation().getCurrentPath();
                     }
-
                 }
             }
         }
@@ -109,13 +86,6 @@ public class MoveToDwellingTask extends Task<BirtEntity> {
         if (entity.getDwellingPos() != null) {
             this.addPossibleDwelling(entity, entity.getDwellingPos());
         }
-
-        this.setLost(entity);
-    }
-
-    private void setLost(BirtEntity entity) {
-        entity.setDwellingPos(null);
-        entity.setTicksLeftToFindDwelling(200);
     }
 
     private boolean isCloseEnough(BirtEntity entity, BlockPos pos) {
